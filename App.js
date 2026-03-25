@@ -1,15 +1,34 @@
-// Root of the app. Sets up bottom-tab navigation between Pets and Logs.
+// Root navigator. Three bottom tabs: Dashboard, Pets, Logs.
+// Safe area is handled via react-native-safe-area-context (bundled with Expo).
 
-import React from "react";
+import { Text, View } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { Text } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import DashboardScreen from "./src/screens/DashboardScreen";
 import PetsScreen from "./src/screens/PetsScreen";
 import LogsScreen from "./src/screens/LogsScreen";
+import { Colors, Radius } from "./src/theme";
 
 const Tab = createBottomTabNavigator();
+
+function TabIcon({ emoji, label, focused }) {
+  return (
+    <View style={{ alignItems: "center", gap: 2 }}>
+      <View
+        style={{
+          backgroundColor: focused ? Colors.primary + "18" : "transparent",
+          borderRadius: Radius.md,
+          paddingHorizontal: 4,
+          paddingVertical: 4,
+        }}
+      >
+        <Text style={{ fontSize: 16 }}>{emoji}</Text>
+      </View>
+    </View>
+  );
+}
 
 export default function App() {
   return (
@@ -17,40 +36,52 @@ export default function App() {
       <NavigationContainer>
         <Tab.Navigator
           screenOptions={{
-            headerShown: false, // We draw our own headers per screen
-            tabBarActiveTintColor: "#2563EB",
-            tabBarInactiveTintColor: "#94A3B8",
+            headerShown: false,
+            tabBarShowLabel: true,
+            tabBarActiveTintColor: Colors.tabActive,
+            tabBarInactiveTintColor: Colors.tabInactive,
             tabBarStyle: {
-              backgroundColor: "#fff",
-              borderTopColor: "#E2E8F0",
+              backgroundColor: Colors.tabBar,
+              borderTopColor: Colors.border,
               borderTopWidth: 1,
-              height: 60,
-              paddingBottom: 8,
+              height: 62,
+              paddingBottom: 10,
+              paddingTop: 4,
             },
             tabBarLabelStyle: {
-              fontSize: 12,
-              fontWeight: "600",
+              fontSize: 11,
+              fontWeight: "700",
             },
           }}
         >
           <Tab.Screen
+            name="Dashboard"
+            component={DashboardScreen}
+            options={{
+              tabBarLabel: "Dashboard",
+              tabBarIcon: ({ focused }) => (
+                <TabIcon emoji="🏠" label="Dashboard" focused={focused} />
+              ),
+            }}
+          />
+          <Tab.Screen
             name="Pets"
             component={PetsScreen}
             options={{
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 22, color }}>🐾</Text>
-              ),
               tabBarLabel: "Pets",
+              tabBarIcon: ({ focused }) => (
+                <TabIcon emoji="🐾" label="Pets" focused={focused} />
+              ),
             }}
           />
           <Tab.Screen
             name="Logs"
             component={LogsScreen}
             options={{
-              tabBarIcon: ({ color }) => (
-                <Text style={{ fontSize: 22, color }}>📋</Text>
-              ),
               tabBarLabel: "Logs",
+              tabBarIcon: ({ focused }) => (
+                <TabIcon emoji="📋" label="Logs" focused={focused} />
+              ),
             }}
           />
         </Tab.Navigator>

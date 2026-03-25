@@ -1,3 +1,10 @@
+// Full-featured log screen:
+//   - Add log (form slides in from header button)
+//   - View logs (newest first, sorted by date string)
+//   - Filter by Pet and by Activity Type (pill filter bar)
+//   - Edit log (modal overlay, pre-filled)
+//   - Delete log (confirm dialog)
+
 import { useState, useCallback } from "react";
 import {
   View,
@@ -10,33 +17,353 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Modal,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { getPets, getLogs, saveLog, deleteLog } from "../storage";
 
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+import {
+  getPets,
+  getLogs,
+  saveLog,
+  editLog,
+  deleteLog,
+  generateId,
+  todayISO,
+} from "../storage";
+import {
+  Colors,
+  Radius,
+  Shadow,
+  ACTIVITY_TYPES,
+  ACTIVITY_EMOJI,
+  ACTIVITY_COLOR,
+  PET_EMOJI,
+} from "../theme";
+
+// ─── Log form (used for both Add and Edit) ────────────────────────────────────
+
+function LogForm({ pets, initial, onSave, onCancel, title }) {
+  const [petId, setPetId] = useState(initial?.petId ?? pets[0]?.id ?? null);
+  const [activityType, setActivityType] = useState(
+    initial?.activityType ?? "Feeding",
+  );
+  const [date, setDate] = useState(initial?.date ?? todayISO());
+  const [notes, setNotes] = useState(initial?.notes ?? "");
+
+  function handleSave() {
+    if (!petId) {
+      Alert.alert("No Pet", "Please add a pet first.");
+      return;
+    }
+    if (!date.trim()) {
+      Alert.alert("Missing Date", "Please enter a date.");
+      return;
+    }
+    onSave({ petId, activityType, date: date.trim(), notes: notes.trim() });
+  }
+
+  return (
+    <View style={formStyles.wrap}>
+      <Text style={formStyles.heading}>{title}</Text>
+
+      {/* Pet selector */}
+      <Text style={formStyles.label}>Pet</Text>
+      {pets.length === 0 ? (
+        <Text style={formStyles.warn}>⚠️ No pets found — add a pet first.</Text>
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={formStyles.chipRow}>
+            {pets.map((p) => (
+              <TouchableOpacity
+                key={p.id}
+                style={[
+                  formStyles.chip,
+                  petId === p.id && formStyles.chipActive,
+                ]}
+                onPress={() => setPetId(p.id)}
+              >
+                <Text style={formStyles.chipEmoji}>
+                  {PET_EMOJI[p.type] ?? "🐾"}
+                </Text>
+                <Text
+                  style={[
+                    formStyles.chipLabel,
+                    petId === p.id && formStyles.chipLabelActive,
+                  ]}
+                >
+                  {p.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      )}
+
+      {/* Activity type */}
+      <Text style={formStyles.label}>Activity</Text>
+      <View style={formStyles.chipRow}>
+        {ACTIVITY_TYPES.map((a) => (
+          <TouchableOpacity
+            key={a}
+            style={[
+              formStyles.chip,
+              activityType === a && formStyles.chipActive,
+            ]}
+            onPress={() => setActivityType(a)}
+          >
+            <Text style={formStyles.chipEmoji}>{ACTIVITY_EMOJI[a]}</Text>
+            <Text
+              style={[
+                formStyles.chipLabel,
+                activityType === a && formStyles.chipLabelActive,
+              ]}
+            >
+              {a}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Date */}
+      <Text style={formStyles.label}>Date (YYYY-MM-DD)</Text>
+      <TextInput
+        style={formStyles.input}
+        value={date}
+        onChangeText={setDate}
+        placeholder="e.g. 2025-06-01"
+        placeholderTextColor={Colors.textMuted}
+      />
+
+      {/* Notes */}
+      <Text style={formStyles.label}>Notes (optional)</Text>
+      <TextInput
+        style={[formStyles.input, formStyles.textArea]}
+        value={notes}
+        onChangeText={setNotes}
+        placeholder="Any extra details..."
+        placeholderTextColor={Colors.textMuted}
+        multiline
+        numberOfLines={3}
+      />
+
+      {/* Buttons */}
+      <View style={formStyles.btnRow}>
+        <TouchableOpacity style={formStyles.cancelBtn} onPress={onCancel}>
+          <Text style={formStyles.cancelBtnText}>Cancel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={formStyles.saveBtn} onPress={handleSave}>
+          <Text style={formStyles.saveBtnText}>Save</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 }
 
-const ACTIVITY_TYPES = ["Feeding", "Medication", "Vet"];
-const ACTIVITY_EMOJI = { Feeding: "🍽️", Medication: "💊", Vet: "🩺" };
+const formStyles = StyleSheet.create({
+  wrap: { padding: 20 },
+  heading: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Colors.textPrimary,
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+    marginTop: 14,
+  },
+  warn: { fontSize: 13, color: Colors.danger, marginBottom: 8 },
+  chipRow: { flexDirection: "row", gap: 8, flexWrap: "wrap", paddingBottom: 4 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radius.full,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  chipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  chipEmoji: { fontSize: 16 },
+  chipLabel: { fontSize: 13, fontWeight: "600", color: Colors.textSecondary },
+  chipLabelActive: { color: "#fff" },
+  input: {
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    borderRadius: Radius.sm,
+    padding: 11,
+    fontSize: 15,
+    color: Colors.textPrimary,
+    backgroundColor: Colors.bg,
+  },
+  textArea: { height: 76, textAlignVertical: "top" },
+  btnRow: { flexDirection: "row", gap: 12, marginTop: 20 },
+  cancelBtn: {
+    flex: 1,
+    padding: 13,
+    borderRadius: Radius.md,
+    alignItems: "center",
+    backgroundColor: Colors.border,
+  },
+  cancelBtnText: {
+    fontWeight: "700",
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  saveBtn: {
+    flex: 2,
+    padding: 13,
+    borderRadius: Radius.md,
+    alignItems: "center",
+    backgroundColor: Colors.primary,
+  },
+  saveBtnText: { fontWeight: "800", fontSize: 14, color: "#fff" },
+});
 
-function todayString() {
-  const d = new Date();
-  // Format: YYYY-MM-DD
-  return d.toISOString().split("T")[0];
+// ─── Log card ─────────────────────────────────────────────────────────────────
+
+function LogCard({ log, petName, petType, onEdit, onDelete }) {
+  const ac = ACTIVITY_COLOR[log.activityType] ?? {
+    bg: "#F1F5F9",
+    text: "#475569",
+  };
+  return (
+    <View style={cardStyles.card}>
+      {/* Left accent stripe */}
+      <View style={[cardStyles.stripe, { backgroundColor: ac.text }]} />
+
+      <View style={[cardStyles.iconWrap, { backgroundColor: ac.bg }]}>
+        <Text style={cardStyles.icon}>{ACTIVITY_EMOJI[log.activityType]}</Text>
+      </View>
+
+      <View style={cardStyles.body}>
+        <View style={cardStyles.topRow}>
+          <Text style={cardStyles.activity}>{log.activityType}</Text>
+          <View style={[cardStyles.tag, { backgroundColor: ac.bg }]}>
+            <Text style={[cardStyles.tagText, { color: ac.text }]}>
+              {log.activityType}
+            </Text>
+          </View>
+        </View>
+        <Text style={cardStyles.petLine}>
+          {PET_EMOJI[petType] ?? "🐾"} {petName ?? "Unknown Pet"}
+        </Text>
+        <Text style={cardStyles.date}>📅 {log.date}</Text>
+        {log.notes ? <Text style={cardStyles.notes}>"{log.notes}"</Text> : null}
+      </View>
+
+      <View style={cardStyles.actions}>
+        <TouchableOpacity style={cardStyles.actionBtn} onPress={onEdit}>
+          <Text style={cardStyles.editIcon}>✏️</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={cardStyles.actionBtn} onPress={onDelete}>
+          <Text style={cardStyles.deleteIcon}>🗑️</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 }
+
+const cardStyles = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    marginBottom: 10,
+    overflow: "hidden",
+    ...Shadow.sm,
+  },
+  stripe: { width: 4 },
+  iconWrap: {
+    width: 52,
+    justifyContent: "center",
+    alignItems: "center",
+    margin: 12,
+    borderRadius: Radius.md,
+    height: 52,
+    alignSelf: "center",
+  },
+  icon: { fontSize: 24 },
+  body: { flex: 1, paddingVertical: 12, paddingRight: 4 },
+  topRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 3,
+  },
+  activity: { fontSize: 15, fontWeight: "700", color: Colors.textPrimary },
+  tag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full },
+  tagText: {
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  petLine: { fontSize: 12, color: Colors.textSecondary, marginBottom: 2 },
+  date: { fontSize: 12, color: Colors.textMuted },
+  notes: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    fontStyle: "italic",
+    marginTop: 4,
+  },
+  actions: {
+    justifyContent: "space-around",
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  actionBtn: { padding: 4 },
+  editIcon: { fontSize: 18 },
+  deleteIcon: { fontSize: 18 },
+});
+
+// ─── Filter pill ──────────────────────────────────────────────────────────────
+
+function FilterPill({ label, active, onPress }) {
+  return (
+    <TouchableOpacity
+      style={[filterStyles.pill, active && filterStyles.pillActive]}
+      onPress={onPress}
+    >
+      <Text
+        style={[filterStyles.pillText, active && filterStyles.pillTextActive]}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+const filterStyles = StyleSheet.create({
+  pill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: Radius.full,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    marginRight: 8,
+  },
+  pillActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  pillText: { fontSize: 13, fontWeight: "600", color: Colors.textSecondary },
+  pillTextActive: { color: "#fff" },
+});
+
+// ─── Main screen ─────────────────────────────────────────────────────────────
 
 export default function LogsScreen() {
   const [pets, setPets] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [formVisible, setFormVisible] = useState(false);
-
-  // Form state
-  const [selectedPetId, setSelectedPetId] = useState(null);
-  const [activityType, setActivityType] = useState("Feeding");
-  const [date, setDate] = useState(todayString());
-  const [notes, setNotes] = useState("");
+  const [addVisible, setAddVisible] = useState(false);
+  const [editTarget, setEditTarget] = useState(null); // log being edited
+  const [filterPet, setFilterPet] = useState("All");
+  const [filterAct, setFilterAct] = useState("All");
 
   useFocusEffect(
     useCallback(() => {
@@ -45,322 +372,237 @@ export default function LogsScreen() {
   );
 
   async function loadAll() {
-    const [petsData, logsData] = await Promise.all([getPets(), getLogs()]);
-    setPets(petsData);
-    setLogs(logsData);
-    // Auto-select first pet if none selected
-    if (petsData.length > 0 && !selectedPetId) {
-      setSelectedPetId(petsData[0].id);
-    }
+    const [p, l] = await Promise.all([getPets(), getLogs()]);
+    setPets(p);
+    setLogs(l);
   }
 
-  function getPetName(petId) {
-    return pets.find((p) => p.id === petId)?.name ?? "Unknown";
-  }
-
-  async function handleAddLog() {
-    if (!selectedPetId) {
-      Alert.alert(
-        "No Pet",
-        "Please add a pet first before logging an activity.",
-      );
-      return;
-    }
-    if (!date.trim()) {
-      Alert.alert("Missing Date", "Please enter a date.");
-      return;
-    }
-
-    const newLog = {
-      id: generateId(),
-      petId: selectedPetId,
-      activityType,
-      date: date.trim(),
-      notes: notes.trim(),
-    };
-
-    await saveLog(newLog);
-    setNotes("");
-    setDate(todayString());
-    setFormVisible(false);
+  // ── Add ──
+  async function handleAdd(fields) {
+    await saveLog({ id: generateId(), ...fields });
+    setAddVisible(false);
     loadAll();
   }
 
-  async function handleDelete(logId) {
-    console.debug("Clicked...");
-    Alert.alert("Delete Log", "Are you sure you want to delete this log?", [
+  // ── Edit ──
+  async function handleEdit(fields) {
+    await editLog({ ...editTarget, ...fields });
+    setEditTarget(null);
+    loadAll();
+  }
+
+  // ── Delete ──
+  function handleDelete(log) {
+    Alert.alert("Delete Log", "Remove this log entry?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
-          await deleteLog(logId);
+          await deleteLog(log.id);
           loadAll();
         },
       },
     ]);
   }
 
-  function renderLogCard({ item }) {
-    return (
-      <View style={styles.card}>
-        <View style={styles.cardLeft}>
-          <Text style={styles.cardEmoji}>
-            {ACTIVITY_EMOJI[item.activityType] ?? "📋"}
-          </Text>
-        </View>
-        <View style={styles.cardBody}>
-          <Text style={styles.cardActivity}>{item.activityType}</Text>
-          <Text style={styles.cardPet}>🐾 {getPetName(item.petId)}</Text>
-          <Text style={styles.cardDate}>📅 {item.date}</Text>
-          {item.notes ? (
-            <Text style={styles.cardNotes}>{item.notes}</Text>
-          ) : null}
-        </View>
-        <TouchableOpacity
-          style={styles.deleteBtn}
-          onPress={() => handleDelete(item.id)}
-        >
-          <Text style={styles.deleteBtnText}>🗑</Text>
-        </TouchableOpacity>
-      </View>
-    );
+  // ── Helpers ──
+  function petById(id) {
+    return pets.find((p) => p.id === id);
   }
+
+  // ── Filtering + Sorting ──
+  const displayed = [...logs]
+    .sort((a, b) => (a.date < b.date ? 1 : -1)) // newest first
+    .filter((l) => filterPet === "All" || l.petId === filterPet)
+    .filter((l) => filterAct === "All" || l.activityType === filterAct);
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      {/* Header */}
+      {/* ── Header ── */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Care Logs</Text>
         <TouchableOpacity
           style={styles.addBtn}
-          onPress={() => setFormVisible((v) => !v)}
+          onPress={() => setAddVisible(true)}
         >
-          <Text style={styles.addBtnText}>
-            {formVisible ? "✕ Cancel" : "+ Add Log"}
-          </Text>
+          <Text style={styles.addBtnText}>+ Add Log</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Add Log Form */}
-      {formVisible && (
-        <View style={styles.form}>
-          <Text style={styles.formTitle}>New Log Entry</Text>
-
-          {/* Pet selector */}
-          <Text style={styles.label}>Pet</Text>
-          {pets.length === 0 ? (
-            <Text style={styles.noPetWarning}>
-              ⚠️ No pets found. Add a pet first.
-            </Text>
-          ) : (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.chipRow}
-            >
-              {pets.map((p) => (
-                <TouchableOpacity
-                  key={p.id}
-                  style={[
-                    styles.chip,
-                    selectedPetId === p.id && styles.chipActive,
-                  ]}
-                  onPress={() => setSelectedPetId(p.id)}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      selectedPetId === p.id && styles.chipTextActive,
-                    ]}
-                  >
-                    {p.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          )}
-
-          {/* Activity type */}
-          <Text style={styles.label}>Activity</Text>
-          <View style={styles.chipRow}>
-            {ACTIVITY_TYPES.map((a) => (
-              <TouchableOpacity
-                key={a}
-                style={[styles.chip, activityType === a && styles.chipActive]}
-                onPress={() => setActivityType(a)}
-              >
-                <Text
-                  style={[
-                    styles.chipText,
-                    activityType === a && styles.chipTextActive,
-                  ]}
-                >
-                  {ACTIVITY_EMOJI[a]} {a}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Date */}
-          <Text style={styles.label}>Date (YYYY-MM-DD)</Text>
-          <TextInput
-            style={styles.input}
-            value={date}
-            onChangeText={setDate}
-            placeholder="2025-06-01"
-            placeholderTextColor="#aaa"
+      {/* ── Filter bar ── */}
+      <View style={styles.filterBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          {/* Pet filters */}
+          <FilterPill
+            label="All Pets"
+            active={filterPet === "All"}
+            onPress={() => setFilterPet("All")}
           />
-
-          {/* Notes */}
-          <Text style={styles.label}>Notes (optional)</Text>
-          <TextInput
-            style={[styles.input, styles.textArea]}
-            value={notes}
-            onChangeText={setNotes}
-            placeholder="Any extra details..."
-            placeholderTextColor="#aaa"
-            multiline
-            numberOfLines={3}
+          {pets.map((p) => (
+            <FilterPill
+              key={p.id}
+              label={`${PET_EMOJI[p.type] ?? "🐾"} ${p.name}`}
+              active={filterPet === p.id}
+              onPress={() => setFilterPet(filterPet === p.id ? "All" : p.id)}
+            />
+          ))}
+          {/* Divider */}
+          <View style={styles.filterDivider} />
+          {/* Activity filters */}
+          <FilterPill
+            label="All Activities"
+            active={filterAct === "All"}
+            onPress={() => setFilterAct("All")}
           />
+          {ACTIVITY_TYPES.map((a) => (
+            <FilterPill
+              key={a}
+              label={`${ACTIVITY_EMOJI[a]} ${a}`}
+              active={filterAct === a}
+              onPress={() => setFilterAct(filterAct === a ? "All" : a)}
+            />
+          ))}
+        </ScrollView>
+      </View>
 
-          <TouchableOpacity style={styles.submitBtn} onPress={handleAddLog}>
-            <Text style={styles.submitBtnText}>Save Log</Text>
-          </TouchableOpacity>
-        </View>
+      {/* ── Log count ── */}
+      {logs.length > 0 && (
+        <Text style={styles.countText}>
+          {displayed.length} of {logs.length} log{logs.length !== 1 ? "s" : ""}
+        </Text>
       )}
 
-      {/* Logs list */}
-      {logs.length === 0 ? (
+      {/* ── Log list ── */}
+      {displayed.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyEmoji}>📋</Text>
-          <Text style={styles.emptyText}>No logs yet.</Text>
+          <Text style={styles.emptyTitle}>
+            {logs.length === 0 ? "No logs yet" : "No matches"}
+          </Text>
           <Text style={styles.emptyHint}>
-            Tap "+ Add Log" to record an activity.
+            {logs.length === 0
+              ? 'Tap "+ Add Log" to record an activity.'
+              : "Try changing your filters."}
           </Text>
         </View>
       ) : (
         <FlatList
-          data={[...logs].reverse()} // show newest first
+          data={displayed}
           keyExtractor={(item) => item.id}
-          renderItem={renderLogCard}
+          renderItem={({ item }) => {
+            const pet = petById(item.petId);
+            return (
+              <LogCard
+                log={item}
+                petName={pet?.name}
+                petType={pet?.type}
+                onEdit={() => setEditTarget(item)}
+                onDelete={() => handleDelete(item)}
+              />
+            );
+          }}
           contentContainerStyle={styles.list}
         />
       )}
+
+      {/* ── Add Log Modal ── */}
+      <Modal
+        visible={addVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setAddVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <LogForm
+                pets={pets}
+                initial={null}
+                title="New Log Entry"
+                onSave={handleAdd}
+                onCancel={() => setAddVisible(false)}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Edit Log Modal ── */}
+      <Modal
+        visible={!!editTarget}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setEditTarget(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <LogForm
+                pets={pets}
+                initial={editTarget}
+                title="Edit Log Entry"
+                onSave={handleEdit}
+                onCancel={() => setEditTarget(null)}
+              />
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
-const BLUE = "#2563EB";
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  container: { flex: 1, backgroundColor: Colors.bg },
 
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 20,
-    paddingTop: 16,
-    backgroundColor: "#fff",
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
+    borderBottomColor: Colors.border,
   },
-  headerTitle: { fontSize: 22, fontWeight: "700", color: "#1E293B" },
+  headerTitle: { fontSize: 22, fontWeight: "800", color: Colors.textPrimary },
   addBtn: {
-    backgroundColor: BLUE,
-    paddingHorizontal: 14,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
+    borderRadius: Radius.full,
   },
-  addBtnText: { color: "#fff", fontWeight: "600", fontSize: 14 },
+  addBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
 
-  form: {
-    margin: 16,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+  filterBar: {
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
-  formTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#1E293B",
-    marginBottom: 12,
+  filterDivider: {
+    width: 1,
+    backgroundColor: Colors.border,
+    marginHorizontal: 6,
+    marginVertical: 4,
   },
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#475569",
-    marginBottom: 4,
-    marginTop: 10,
-  },
-  chipRow: { flexDirection: "row", marginBottom: 4 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    marginRight: 8,
-    backgroundColor: "#fff",
-  },
-  chipActive: { backgroundColor: BLUE, borderColor: BLUE },
-  chipText: { color: "#475569", fontSize: 13, fontWeight: "500" },
-  chipTextActive: { color: "#fff" },
-  noPetWarning: { color: "#DC2626", fontSize: 13, marginBottom: 8 },
-  input: {
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 15,
-    color: "#1E293B",
-    backgroundColor: "#F8FAFC",
-  },
-  textArea: { height: 72, textAlignVertical: "top" },
-  submitBtn: {
-    backgroundColor: BLUE,
-    borderRadius: 8,
-    padding: 13,
-    alignItems: "center",
-    marginTop: 16,
-  },
-  submitBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-
-  list: { padding: 16 },
-  card: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  cardLeft: { marginRight: 12, paddingTop: 2 },
-  cardEmoji: { fontSize: 28 },
-  cardBody: { flex: 1 },
-  cardActivity: { fontSize: 15, fontWeight: "700", color: "#1E293B" },
-  cardPet: { fontSize: 13, color: "#475569", marginTop: 3 },
-  cardDate: { fontSize: 13, color: "#64748B", marginTop: 2 },
-  cardNotes: {
+  countText: {
     fontSize: 12,
-    color: "#94A3B8",
-    marginTop: 4,
-    fontStyle: "italic",
+    color: Colors.textMuted,
+    fontWeight: "600",
+    marginHorizontal: 20,
+    marginTop: 10,
+    marginBottom: 2,
   },
-  deleteBtn: { padding: 6 },
-  deleteBtnText: { fontSize: 20 },
+
+  list: { padding: 16, paddingTop: 10 },
 
   empty: {
     flex: 1,
@@ -368,7 +610,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 40,
   },
-  emptyEmoji: { fontSize: 48, marginBottom: 12 },
-  emptyText: { fontSize: 17, fontWeight: "600", color: "#475569" },
-  emptyHint: { fontSize: 13, color: "#94A3B8", marginTop: 4 },
+  emptyEmoji: { fontSize: 52, marginBottom: 12 },
+  emptyTitle: { fontSize: 18, fontWeight: "700", color: Colors.textSecondary },
+  emptyHint: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    marginTop: 6,
+    textAlign: "center",
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    maxHeight: "90%",
+    ...Shadow.md,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: Colors.border,
+    borderRadius: Radius.full,
+    alignSelf: "center",
+    marginTop: 12,
+    marginBottom: 4,
+  },
 });
